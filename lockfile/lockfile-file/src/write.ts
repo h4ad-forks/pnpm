@@ -1,20 +1,19 @@
-import { promises as fs } from 'fs'
-import path from 'path'
-import { DEPENDENCIES_FIELDS } from '@pnpm/types'
-import { type Lockfile, type ProjectSnapshot } from '@pnpm/lockfile-types'
 import { WANTED_LOCKFILE } from '@pnpm/constants'
-import rimraf from '@zkochan/rimraf'
 import * as dp from '@pnpm/dependency-path'
+import { type Lockfile, type ProjectSnapshot } from '@pnpm/lockfile-types'
+import { DEPENDENCIES_FIELDS } from '@pnpm/types'
+import rimraf from '@zkochan/rimraf'
+import { promises as fs } from 'fs'
 import yaml from 'js-yaml'
+import path from 'path'
 import equals from 'ramda/src/equals'
-import pickBy from 'ramda/src/pickBy'
 import isEmpty from 'ramda/src/isEmpty'
-import mapValues from 'ramda/src/map'
+import pickBy from 'ramda/src/pickBy'
 import writeFileAtomicCB from 'write-file-atomic'
+import { convertToInlineSpecifiersFormat } from './experiments/inlineSpecifiersLockfileConverters'
+import { getWantedLockfileName } from './lockfileName'
 import { lockfileLogger as logger } from './logger'
 import { sortLockfileKeys } from './sortLockfileKeys'
-import { getWantedLockfileName } from './lockfileName'
-import { convertToInlineSpecifiersFormat } from './experiments/inlineSpecifiersLockfileConverters'
 
 async function writeFileAtomic (filename: string, data: string) {
   return new Promise<void>((resolve, reject) => {
@@ -108,7 +107,7 @@ export function normalizeLockfile (lockfile: Lockfile, opts: NormalizeLockfileOp
   if (!opts.forceSharedFormat && equals(Object.keys(lockfile.importers), ['.'])) {
     lockfileToSave = {
       ...lockfile,
-      ...lockfile.importers['.'],
+      ...lockfile.importers.get('.'),
     }
     delete lockfileToSave.importers
     for (const depType of DEPENDENCIES_FIELDS) {
@@ -120,26 +119,31 @@ export function normalizeLockfile (lockfile: Lockfile, opts: NormalizeLockfileOp
       delete lockfileToSave.packages
     }
   } else {
+    const importers = new Map<string, ProjectSnapshot>()
+
+    for (const [importerId, importer] of lockfile.importers.entries()) {
+      const normalizedImporter: Partial<ProjectSnapshot> = {}
+      if (!isEmpty(importer.specifiers ?? new Map()) || opts.includeEmptySpecifiersField) {
+        normalizedImporter['specifiers'] = importer.specifiers ?? new Map()
+      }
+      if (importer.dependenciesMeta != null && !isEmpty(importer.dependenciesMeta)) {
+        normalizedImporter['dependenciesMeta'] = importer.dependenciesMeta
+      }
+      for (const depType of DEPENDENCIES_FIELDS) {
+        if (!isEmpty(importer[depType] ?? new Map())) {
+          normalizedImporter[depType] = importer[depType]
+        }
+      }
+      if (importer.publishDirectory) {
+        normalizedImporter.publishDirectory = importer.publishDirectory
+      }
+
+      importers.set(importerId, normalizedImporter as ProjectSnapshot)
+    }
+
     lockfileToSave = {
       ...lockfile,
-      importers: mapValues((importer) => {
-        const normalizedImporter: Partial<ProjectSnapshot> = {}
-        if (!isEmpty(importer.specifiers ?? {}) || opts.includeEmptySpecifiersField) {
-          normalizedImporter['specifiers'] = importer.specifiers ?? {}
-        }
-        if (importer.dependenciesMeta != null && !isEmpty(importer.dependenciesMeta)) {
-          normalizedImporter['dependenciesMeta'] = importer.dependenciesMeta
-        }
-        for (const depType of DEPENDENCIES_FIELDS) {
-          if (!isEmpty(importer[depType] ?? {})) {
-            normalizedImporter[depType] = importer[depType]
-          }
-        }
-        if (importer.publishDirectory) {
-          normalizedImporter.publishDirectory = importer.publishDirectory
-        }
-        return normalizedImporter as ProjectSnapshot
-      }, lockfile.importers),
+      importers,
     }
     if (isEmpty(lockfileToSave.packages) || (lockfileToSave.packages == null)) {
       delete lockfileToSave.packages
@@ -170,11 +174,11 @@ export function normalizeLockfile (lockfile: Lockfile, opts: NormalizeLockfileOp
   return lockfileToSave
 }
 
-function pruneTimeInLockfileV6 (time: Record<string, string>, importers: Record<string, ProjectSnapshot>): Record<string, string> {
+function pruneTimeInLockfileV6 (time: Map<string, string>, importers: Map<string, ProjectSnapshot>): Map<string, string> {
   const rootDepPaths = new Set<string>()
-  for (const importer of Object.values(importers)) {
+  for (const importer of importers.values()) {
     for (const depType of DEPENDENCIES_FIELDS) {
-      for (let [depName, ref] of Object.entries(importer[depType] ?? {})) {
+      for (let [depName, ref] of importer[depType]?.entries() ?? []) {
         // @ts-expect-error
         if (ref['version']) ref = ref['version']
         const suffixStart = ref.indexOf('(')
@@ -185,7 +189,7 @@ function pruneTimeInLockfileV6 (time: Record<string, string>, importers: Record<
       }
     }
   }
-  return pickBy((_, depPath) => rootDepPaths.has(depPath), time)
+  return pickBy((_, depPath) => rootDepPaths.has(depPath.toString()), time)
 }
 
 function refToRelative (
@@ -204,11 +208,11 @@ function refToRelative (
   return reference
 }
 
-function pruneTime (time: Record<string, string>, importers: Record<string, ProjectSnapshot>): Record<string, string> {
+function pruneTime (time: Map<string, string>, importers: Map<string, ProjectSnapshot>): Map<string, string> {
   const rootDepPaths = new Set<string>()
-  for (const importer of Object.values(importers)) {
+  for (const importer of importers.values()) {
     for (const depType of DEPENDENCIES_FIELDS) {
-      for (let [depName, ref] of Object.entries(importer[depType] ?? {})) {
+      for (let [depName, ref] of importer[depType]?.entries() ?? []) {
         // @ts-expect-error
         if (ref['version']) ref = ref['version']
         const suffixStart = ref.indexOf('_')
@@ -219,7 +223,7 @@ function pruneTime (time: Record<string, string>, importers: Record<string, Proj
       }
     }
   }
-  return pickBy((t, depPath) => rootDepPaths.has(depPath), time)
+  return pickBy((t, depPath) => rootDepPaths.has(depPath.toString()), time)
 }
 
 export async function writeLockfiles (

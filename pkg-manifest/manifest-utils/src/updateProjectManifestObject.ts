@@ -22,22 +22,22 @@ export async function updateProjectManifestObject (
     if (packageSpec.saveType) {
       const spec = packageSpec.pref ?? findSpec(packageSpec.alias, packageManifest)
       if (spec) {
-        packageManifest[packageSpec.saveType] = packageManifest[packageSpec.saveType] ?? {}
+        packageManifest[packageSpec.saveType] = packageManifest[packageSpec.saveType] ?? new Map()
         packageManifest[packageSpec.saveType]![packageSpec.alias] = spec
         DEPENDENCIES_FIELDS.filter((depField) => depField !== packageSpec.saveType).forEach((deptype) => {
           if (packageManifest[deptype] != null) {
-            delete packageManifest[deptype]![packageSpec.alias]
+            packageManifest[deptype]![packageSpec.alias] = undefined
           }
         })
         if (packageSpec.peer === true) {
-          packageManifest.peerDependencies = packageManifest.peerDependencies ?? {}
-          packageManifest.peerDependencies[packageSpec.alias] = spec
+          packageManifest.peerDependencies = packageManifest.peerDependencies ?? new Map()
+          packageManifest.peerDependencies.set(packageSpec.alias, spec)
         }
       }
     } else if (packageSpec.pref) {
       const usedDepType = guessDependencyType(packageSpec.alias, packageManifest) ?? 'dependencies'
-      packageManifest[usedDepType] = packageManifest[usedDepType] ?? {}
-      packageManifest[usedDepType]![packageSpec.alias] = packageSpec.pref
+      packageManifest[usedDepType] = packageManifest[usedDepType] ?? new Map()
+      packageManifest[usedDepType]!.set(packageSpec.alias, packageSpec.pref)
     }
     if (packageSpec.nodeExecPath) {
       if (packageManifest.dependenciesMeta == null) {

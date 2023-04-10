@@ -1,9 +1,8 @@
 import graphSequencer from '@pnpm/graph-sequencer'
 import { type PackageManifest, type PatchFile } from '@pnpm/types'
-import filter from 'ramda/src/filter'
 
 export interface DependenciesGraphNode {
-  children: Record<string, string>
+  children: Map<string, string>
   depPath: string
   dir: string
   fetchingBundledManifest?: () => Promise<PackageManifest | undefined>
@@ -19,21 +18,31 @@ export interface DependenciesGraphNode {
   patchFile?: PatchFile
 }
 
-export interface DependenciesGraph {
-  [depPath: string]: DependenciesGraphNode
-}
+export type DependenciesGraph = Map<string, DependenciesGraphNode>
 
 export function buildSequence (
-  depGraph: Record<string, Pick<DependenciesGraphNode, 'children' | 'requiresBuild'>>,
+  depGraph: Map<string, Pick<DependenciesGraphNode, 'children' | 'requiresBuild'>>,
   rootDepPaths: string[]
 ) {
   const nodesToBuild = new Set<string>()
   getSubgraphToBuild(depGraph, rootDepPaths, nodesToBuild, new Set<string>())
-  const onlyFromBuildGraph = filter((depPath: string) => nodesToBuild.has(depPath))
+  // const onlyFromBuildGraph = filter((depPath: string) => nodesToBuild.has(depPath))
   const nodesToBuildArray = Array.from(nodesToBuild)
   const graph = new Map(
     nodesToBuildArray
-      .map((depPath) => [depPath, onlyFromBuildGraph(Object.values(depGraph[depPath].children))])
+      .map((depPath) => {
+        const graphValues: string[] = []
+
+        for (const childrenPepPath of depGraph.get(depPath)!.children.values()) {
+          if (!nodesToBuild.has(childrenPepPath))
+            continue
+
+          graphValues.push(depPath)
+        }
+
+        return [depPath, graphValues]
+        // return [depPath, onlyFromBuildGraph(Object.values(depGraph.get(depPath)!.children))]
+      })
   )
   const graphSequencerResult = graphSequencer({
     graph,
@@ -44,14 +53,14 @@ export function buildSequence (
 }
 
 function getSubgraphToBuild (
-  graph: Record<string, Pick<DependenciesGraphNode, 'children' | 'requiresBuild' | 'patchFile'>>,
+  graph: Map<string, Pick<DependenciesGraphNode, 'children' | 'requiresBuild' | 'patchFile'>>,
   entryNodes: string[],
   nodesToBuild: Set<string>,
   walked: Set<string>
 ) {
   let currentShouldBeBuilt = false
   for (const depPath of entryNodes) {
-    const node = graph[depPath]
+    const node = graph.get(depPath)
     if (!node) continue // packages that are already in node_modules are skipped
     if (walked.has(depPath)) continue
     walked.add(depPath)

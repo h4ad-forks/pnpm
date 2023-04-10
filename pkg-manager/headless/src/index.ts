@@ -65,7 +65,6 @@ import isEmpty from 'ramda/src/isEmpty'
 import omit from 'ramda/src/omit'
 import pick from 'ramda/src/pick'
 import pickBy from 'ramda/src/pickBy'
-import props from 'ramda/src/props'
 import union from 'ramda/src/union'
 import realpathMissing from 'realpath-missing'
 import { linkHoistedModules } from './linkHoistedModules'
@@ -447,7 +446,7 @@ export async function headlessInstall (opts: HeadlessOptions) {
     for (const id of union(importerIds, ['.'])) {
       Object
         .values(directDependenciesByImporterId[id] ?? {})
-        .filter((loc) => graph[loc])
+        .filter((loc) => graph.get(loc))
         .forEach((loc) => {
           directNodes.add(loc)
         })
@@ -776,9 +775,9 @@ async function linkAllPkgs (
       }
       depNode.isBuilt = isBuilt
 
-      const selfDep = depNode.children[depNode.name]
+      const selfDep = depNode.children.get(depNode.name)
       if (selfDep) {
-        const pkg = opts.depGraph[selfDep]
+        const pkg = opts.depGraph.get(selfDep)
         if (!pkg) return
         const targetModulesDir = path.join(depNode.modules, depNode.name, 'node_modules')
         await limitLinking(async () => symlinkDependency(pkg.dir, targetModulesDir, depNode.name))
@@ -804,7 +803,7 @@ async function linkAllBins (
           : pickBy((_, childAlias) => !depNode.optionalDependencies.has(childAlias), depNode.children)
 
         const binPath = path.join(depNode.dir, 'node_modules/.bin')
-        const pkgSnapshots = props<string, DependenciesGraphNode>(Object.values(childrenToLink), depGraph)
+        const pkgSnapshots = Object.values(childrenToLink).map(key => depGraph.get(key)!)
 
         if (pkgSnapshots.includes(undefined as any)) { // eslint-disable-line
           await linkBins(depNode.modules, binPath, {
@@ -851,9 +850,9 @@ async function linkAllModules (
   await Promise.all(
     depNodes
       .map(async (depNode) => {
-        const childrenToLink: Record<string, string> = opts.optional
+        const childrenToLink: Map<string, string> = opts.optional
           ? depNode.children
-          : pickBy((_, childAlias) => !depNode.optionalDependencies.has(childAlias), depNode.children)
+          : pickBy((_, childAlias) => !depNode.optionalDependencies.has(childAlias as string), depNode.children)
 
         await Promise.all(
           Object.entries(childrenToLink)

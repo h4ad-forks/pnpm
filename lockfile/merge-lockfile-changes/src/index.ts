@@ -4,52 +4,52 @@ import semver from 'semver'
 
 export function mergeLockfileChanges (ours: Lockfile, theirs: Lockfile) {
   const newLockfile: Lockfile = {
-    importers: {},
+    importers: new Map(),
     lockfileVersion: semver.gt(comverToSemver(theirs.lockfileVersion.toString()), comverToSemver(ours.lockfileVersion.toString()))
       ? theirs.lockfileVersion
       : ours.lockfileVersion,
   }
 
-  for (const importerId of Array.from(new Set([...Object.keys(ours.importers), ...Object.keys(theirs.importers)]))) {
-    newLockfile.importers[importerId] = {
-      specifiers: {},
-    }
+  for (const importerId of Array.from(new Set([...ours.importers.keys(), ...theirs.importers.keys()]))) {
+    newLockfile.importers.set(importerId, {
+      specifiers: new Map(),
+    })
     for (const key of ['dependencies', 'devDependencies', 'optionalDependencies'] as const) {
-      newLockfile.importers[importerId][key] = mergeDict(
-        ours.importers[importerId]?.[key] ?? {},
-        theirs.importers[importerId]?.[key] ?? {},
+      newLockfile.importers.get(importerId)![key] = mergeDict(
+        ours.importers.get(importerId)?.[key] ?? new Map(),
+        theirs.importers.get(importerId)?.[key] ?? new Map(),
         mergeVersions
       )
-      if (Object.keys(newLockfile.importers[importerId][key] ?? {}).length === 0) {
-        delete newLockfile.importers[importerId][key]
+      if (Object.keys(newLockfile.importers.get(importerId)![key] ?? {}).length === 0) {
+        newLockfile.importers.get(importerId)![key] = undefined;
       }
     }
-    newLockfile.importers[importerId].specifiers = mergeDict(
-      ours.importers[importerId]?.specifiers ?? {},
-      theirs.importers[importerId]?.specifiers ?? {},
+    newLockfile.importers.get(importerId)!.specifiers = mergeDict(
+      ours.importers.get(importerId)?.specifiers ?? new Map(),
+      theirs.importers.get(importerId)?.specifiers ?? new Map(),
       takeChangedValue
     )
   }
 
-  const packages: PackageSnapshots = {}
-  for (const depPath of Array.from(new Set([...Object.keys(ours.packages ?? {}), ...Object.keys(theirs.packages ?? {})]))) {
-    const ourPkg = ours.packages?.[depPath]
-    const theirPkg = theirs.packages?.[depPath]
+  const packages: PackageSnapshots = new Map()
+  for (const depPath of Array.from(new Set([...ours.packages?.keys() || [], ...theirs.packages?.keys() || []]))) {
+    const ourPkg = ours.packages?.get(depPath)
+    const theirPkg = theirs.packages?.get(depPath)
     const pkg = {
       ...ourPkg,
       ...theirPkg,
     }
     for (const key of ['dependencies', 'optionalDependencies'] as const) {
       pkg[key] = mergeDict(
-        ourPkg?.[key] ?? {},
-        theirPkg?.[key] ?? {},
+        ourPkg?.[key] ?? new Map(),
+        theirPkg?.[key] ?? new Map(),
         mergeVersions
       )
-      if (Object.keys(pkg[key] ?? {}).length === 0) {
-        delete pkg[key]
+      if (!pkg[key]?.size) {
+        pkg[key] = undefined
       }
     }
-    packages[depPath] = pkg as PackageSnapshot
+    packages.set(depPath, pkg as PackageSnapshot)
   }
   newLockfile.packages = packages
 
@@ -59,19 +59,25 @@ export function mergeLockfileChanges (ours: Lockfile, theirs: Lockfile) {
 type ValueMerger<T> = (ourValue: T, theirValue: T) => T
 
 function mergeDict<T> (
-  ourDict: Record<string, T>,
-  theirDict: Record<string, T>,
+  ourDict: Map<string, T>,
+  theirDict: Map<string, T>,
   valueMerger: ValueMerger<T>
 ) {
-  const newDict: Record<string, T> = {}
-  for (const key of Object.keys(ourDict).concat(Object.keys(theirDict))) {
+  const newDict: Map<string, T> = new Map()
+  const mergeValueByKey = (key: string) => {
     const changedValue = valueMerger(
-      ourDict[key],
-      theirDict[key]
+      ourDict.get(key)!,
+      theirDict.get(key)!
     )
     if (changedValue) {
-      newDict[key] = changedValue
+      newDict.set(key, changedValue)
     }
+  }
+  for (const key of ourDict.keys()) {
+    mergeValueByKey(key)
+  }
+  for (const key of theirDict.keys()) {
+    mergeValueByKey(key)
   }
   return newDict
 }

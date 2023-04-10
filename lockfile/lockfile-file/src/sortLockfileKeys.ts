@@ -62,19 +62,19 @@ export function sortLockfileKeys (lockfile: LockfileFile) {
   if (lockfile.importers != null) {
     lockfile.importers = sortKeys(lockfile.importers)
     for (const [importerId, importer] of Object.entries(lockfile.importers)) {
-      lockfile.importers[importerId] = sortKeys(importer, {
+      lockfile.importers.set(importerId, sortKeys(importer, {
         compare: compareRootKeys,
         deep: true,
-      })
+      }))
     }
   }
   if (lockfile.packages != null) {
     lockfile.packages = sortKeys(lockfile.packages)
     for (const [pkgId, pkg] of Object.entries(lockfile.packages)) {
-      lockfile.packages[pkgId] = sortKeys(pkg, {
+      lockfile.packages.set(pkgId, sortKeys(pkg, {
         compare: compareWithPriority.bind(null, ORDERED_KEYS),
         deep: true,
-      })
+      }))
     }
   }
   for (const key of ['specifiers', 'dependencies', 'devDependencies', 'optionalDependencies', 'time', 'patchedDependencies'] as const) {

@@ -35,7 +35,7 @@ export interface DependenciesGraphNode {
   fetchingFiles: () => Promise<PackageFilesResponse>
   finishing: () => Promise<void>
   dir: string
-  children: Record<string, string>
+  children: Map<string, string>
   optionalDependencies: Set<string>
   optional: boolean
   depPath: string // this option is only needed for saving pendingBuild when running with --ignore-scripts flag
@@ -47,9 +47,7 @@ export interface DependenciesGraphNode {
   patchFile?: PatchFile
 }
 
-export interface DependenciesGraph {
-  [depPath: string]: DependenciesGraphNode
-}
+export type DependenciesGraph = Map<string, DependenciesGraphNode>
 
 export interface LockfileToDepGraphOptions {
   engineStrict: boolean
@@ -93,7 +91,7 @@ export async function lockfileToDepGraph (
   opts: LockfileToDepGraphOptions
 ): Promise<LockfileToDepGraphResult> {
   const currentPackages = currentLockfile?.packages ?? {}
-  const graph: DependenciesGraph = {}
+  const graph: DependenciesGraph = new Map()
   const directDependenciesByImporterId: DirectDependenciesByImporterId = {}
   if (lockfile.packages != null) {
     const pkgSnapshotByLocation: Record<string, PackageSnapshot> = {}
@@ -164,8 +162,8 @@ export async function lockfileToDepGraph (
           if (pkgSnapshot.optional) return
           throw err
         }
-        graph[dir] = {
-          children: {},
+        graph.set(dir, {
+          children: new Map(),
           depPath,
           dir,
           fetchingFiles: fetchResponse.files,
@@ -180,7 +178,7 @@ export async function lockfileToDepGraph (
           prepare: pkgSnapshot.prepare === true,
           requiresBuild: pkgSnapshot.requiresBuild === true,
           patchFile: opts.patchedDependencies?.[`${pkgName}@${pkgVersion}`],
-        }
+        })
         pkgSnapshotByLocation[dir] = pkgSnapshot
       })
     )
@@ -245,8 +243,9 @@ function getChildrenPaths (
     }
     const childRelDepPath = dp.refToRelative(ref, alias) as string
     const childPkgSnapshot = ctx.pkgSnapshotsByDepPaths[childRelDepPath]
-    if (ctx.graph[childRelDepPath]) {
-      children[alias] = ctx.graph[childRelDepPath].dir
+    const graphChildren = ctx.graph.get(childRelDepPath)
+    if (graphChildren) {
+      children[alias] = graphChildren.dir
     } else if (childPkgSnapshot) {
       if (ctx.skipped.has(childRelDepPath)) continue
       const pkgName = nameVerFromPkgSnapshot(childRelDepPath, childPkgSnapshot).name

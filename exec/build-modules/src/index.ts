@@ -55,7 +55,7 @@ export async function buildModules (
   const chunks = buildSequence(depGraph, rootDepPaths)
   const groups = chunks.map((chunk) => {
     chunk = chunk.filter((depPath) => {
-      const node = depGraph[depPath]
+      const node = depGraph.get(depPath)!
       return (node.requiresBuild || node.patchFile != null) && !node.isBuilt
     })
     if (opts.depsToBuild != null) {
@@ -94,7 +94,7 @@ async function buildDependency (
     warn: (message: string) => void
   }
 ) {
-  const depNode = depGraph[depPath]
+  const depNode = depGraph.get(depPath)!
   if (opts.builtHoistedDeps) {
     if (opts.builtHoistedDeps[depNode.depPath]) {
       await opts.builtHoistedDeps[depNode.depPath].promise
@@ -189,15 +189,15 @@ export async function linkBinsOfDependencies (
     warn: (message: string) => void
   }
 ) {
-  const childrenToLink: Record<string, string> = opts.optional
+  const childrenToLink: Map<string, string> = opts.optional
     ? depNode.children
-    : pickBy((child, childAlias) => !depNode.optionalDependencies.has(childAlias), depNode.children)
+    : pickBy((child, childAlias) => !depNode.optionalDependencies.has(childAlias as string), depNode.children)
 
   const binPath = path.join(depNode.dir, 'node_modules/.bin')
 
   const pkgNodes = [
     ...Object.entries(childrenToLink)
-      .map(([alias, childDepPath]) => ({ alias, dep: depGraph[childDepPath] }))
+      .map(([alias, childDepPath]) => ({ alias, dep: depGraph.get(childDepPath)! }))
       .filter(({ alias, dep }) => {
         if (!dep) {
           // TODO: Try to reproduce this issue with a test in @pnpm/core

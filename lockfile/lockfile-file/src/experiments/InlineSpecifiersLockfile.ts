@@ -13,7 +13,7 @@ export const INLINE_SPECIFIERS_FORMAT_LOCKFILE_VERSION_SUFFIX = '-inlineSpecifie
  */
 export interface InlineSpecifiersLockfile extends Omit<Lockfile, 'lockfileVersion' | 'importers'> {
   lockfileVersion: string
-  importers: Record<string, InlineSpecifiersProjectSnapshot>
+  importers: Map<string, InlineSpecifiersProjectSnapshot>
 }
 
 /**
@@ -28,9 +28,7 @@ export interface InlineSpecifiersProjectSnapshot {
   dependenciesMeta?: DependenciesMeta
 }
 
-export interface InlineSpecifiersResolvedDependencies {
-  [depName: string]: SpecifierAndResolution
-}
+export type InlineSpecifiersResolvedDependencies = Map<string, SpecifierAndResolution>
 
 export interface SpecifierAndResolution {
   specifier: string

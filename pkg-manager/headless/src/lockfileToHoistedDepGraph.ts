@@ -56,7 +56,7 @@ export async function lockfileToHoistedDepGraph (
   if (currentLockfile?.packages != null) {
     prevGraph = (await _lockfileToHoistedDepGraph(currentLockfile, opts)).graph
   } else {
-    prevGraph = {}
+    prevGraph = new Map()
   }
   return {
     ...(await _lockfileToHoistedDepGraph(lockfile, opts)),
@@ -69,7 +69,7 @@ async function _lockfileToHoistedDepGraph (
   opts: LockfileToHoistedDepGraphOptions
 ): Promise<Omit<LockfileToDepGraphResult, 'prevGraph'>> {
   const tree = hoist(lockfile, { hoistingLimits: opts.hoistingLimits, externalDependencies: opts.externalDependencies })
-  const graph: DependenciesGraph = {}
+  const graph: DependenciesGraph = new Map()
   const modulesDir = path.join(opts.lockfileDir, 'node_modules')
   const fetchDepsOpts = {
     ...opts,
@@ -112,7 +112,7 @@ async function _lockfileToHoistedDepGraph (
 
 function directDepsMap (directDepDirs: string[], graph: DependenciesGraph): Record<string, string> {
   return directDepDirs.reduce((acc, dir) => {
-    acc[graph[dir].alias!] = dir
+    acc[graph.get(dir)!.alias!] = dir
     return acc
   }, {} as Record<string, string>)
 }
@@ -216,9 +216,9 @@ async function fetchDeps (
         throw err
       }
     }
-    opts.graph[dir] = {
+    opts.graph.set(dir, {
       alias: dep.name,
-      children: {},
+      children: new Map(),
       depPath,
       dir,
       fetchingFiles: fetchResponse.files,
@@ -233,7 +233,7 @@ async function fetchDeps (
       prepare: pkgSnapshot.prepare === true,
       requiresBuild: pkgSnapshot.requiresBuild === true,
       patchFile: opts.patchedDependencies?.[`${pkgName}@${pkgVersion}`],
-    }
+    })
     if (!opts.pkgLocationsByDepPath[depPath]) {
       opts.pkgLocationsByDepPath[depPath] = []
     }
@@ -243,7 +243,7 @@ async function fetchDeps (
       opts.hoistedLocations[depPath] = []
     }
     opts.hoistedLocations[depPath].push(depLocation)
-    opts.graph[dir].children = getChildren(pkgSnapshot, opts.pkgLocationsByDepPath, opts)
+    opts.graph.get(dir)!.children = getChildren(pkgSnapshot, opts.pkgLocationsByDepPath, opts)
   }))
   return depHierarchy
 }
@@ -253,15 +253,17 @@ function getChildren (
   pkgLocationsByDepPath: Record<string, string[]>,
   opts: { include: IncludedDependencies }
 ) {
-  const allDeps = {
-    ...pkgSnapshot.dependencies,
-    ...(opts.include.optionalDependencies ? pkgSnapshot.optionalDependencies : {}),
-  }
-  const children: Record<string, string> = {}
-  for (const [childName, childRef] of Object.entries(allDeps)) {
+  const children = new Map<string, string>()
+  for (const [childName, childRef] of Object.entries(pkgSnapshot.dependencies ?? {})) {
     const childDepPath = dp.refToRelative(childRef, childName)
     if (childDepPath && pkgLocationsByDepPath[childDepPath]) {
-      children[childName] = pkgLocationsByDepPath[childDepPath][0]
+      children.set(childName, pkgLocationsByDepPath[childDepPath][0])
+    }
+  }
+  for (const [childName, childRef] of Object.entries(opts.include.optionalDependencies ? pkgSnapshot.optionalDependencies ?? {} : {})) {
+    const childDepPath = dp.refToRelative(childRef, childName)
+    if (childDepPath && pkgLocationsByDepPath[childDepPath]) {
+      children.set(childName, pkgLocationsByDepPath[childDepPath][0])
     }
   }
   return children

@@ -1,12 +1,10 @@
 import { ENGINE_NAME } from '@pnpm/constants'
 import sortKeys from 'sort-keys'
 
-export interface DepsGraph {
-  [depPath: string]: DepsGraphNode
-}
+export type DepsGraph = Map<string, DepsGraphNode>
 
 export interface DepsGraphNode {
-  children: { [alias: string]: string }
+  children: Map<string, string>
   depPath: string
 }
 
@@ -45,12 +43,12 @@ function calcDepStateObj (
   parents: Set<string>
 ): DepStateObj {
   if (cache[depPath]) return cache[depPath]
-  const node = depsGraph[depPath]
+  const node = depsGraph.get(depPath)
   if (!node) return {}
   const nextParents = new Set([...Array.from(parents), node.depPath])
   const state: DepStateObj = {}
   for (const childId of Object.values(node.children)) {
-    const child = depsGraph[childId]
+    const child = depsGraph.get(childId)
     if (!child) continue
     if (parents.has(child.depPath)) {
       state[child.depPath] = {}

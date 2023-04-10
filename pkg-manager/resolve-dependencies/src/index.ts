@@ -225,7 +225,7 @@ export async function resolveDependencies (
         projectSnapshot.dependenciesMeta = manifest.dependenciesMeta
       }
 
-      const depNode = dependenciesGraph[depPath]
+      const depNode = dependenciesGraph.get(depPath)!
 
       const ref = depPathToRef(depPath, {
         alias,
@@ -313,7 +313,7 @@ async function finishLockfileUpdates (
   newLockfile: Lockfile
 ) {
   return Promise.all(pendingRequiresBuilds.map(async (depPath) => {
-    const depNode = dependenciesGraph[depPath]
+    const depNode = dependenciesGraph.get(depPath)!
     let requiresBuild!: boolean
     if (depNode.optional) {
       // We assume that all optional dependencies have to be built.

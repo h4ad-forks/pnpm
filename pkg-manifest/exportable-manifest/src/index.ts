@@ -51,11 +51,14 @@ async function makePublishDependencies (
   modulesDir?: string
 ): Promise<Dependencies | undefined> {
   if (dependencies == null) return dependencies
-  const publishDependencies = await pMapValues(
-    (depSpec, depName) => makePublishDependency(depName, depSpec, dir, modulesDir),
-    dependencies
-  )
-  return publishDependencies
+
+  const deps: Dependencies = new Map();
+  for (const [depName, depSpec] of dependencies.entries()) {
+    const publishDependency = await makePublishDependency(depName.toString(), depSpec.toString(), dir, modulesDir)
+    deps.set(depName, publishDependency);
+  }
+
+  return deps
 }
 
 async function makePublishDependency (depName: string, depSpec: string, dir: string, modulesDir?: string) {

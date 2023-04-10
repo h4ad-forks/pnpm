@@ -139,12 +139,12 @@ export function createLockfileObject (
   }
 ) {
   const importers = importerIds.reduce((acc, importerId) => {
-    acc[importerId] = {
-      dependencies: {},
-      specifiers: {},
-    }
+    acc.set(importerId, {
+      dependencies: new Map(),
+      specifiers: new Map(),
+    })
     return acc
-  }, {} as Lockfile['importers'])
+  }, new Map() as Lockfile['importers'])
   return {
     importers,
     lockfileVersion: opts.lockfileVersion || LOCKFILE_VERSION,
@@ -233,18 +233,16 @@ async function _readGitBranchLockfiles (
  */
 function convertFromLockfileFileMutable (lockfileFile: LockfileFile): Lockfile {
   if (typeof lockfileFile?.['importers'] === 'undefined') {
-    lockfileFile.importers = {
-      '.': {
-        specifiers: lockfileFile['specifiers'] ?? {},
-        dependenciesMeta: lockfileFile['dependenciesMeta'],
-        publishDirectory: lockfileFile['publishDirectory'],
-      },
-    }
-    delete lockfileFile.specifiers
+    lockfileFile.importers!.set('.', {
+      specifiers: lockfileFile['specifiers'] ?? new Map(),
+      dependenciesMeta: lockfileFile['dependenciesMeta'],
+      publishDirectory: lockfileFile['publishDirectory'],
+    })
+    lockfileFile.specifiers = undefined
     for (const depType of DEPENDENCIES_FIELDS) {
       if (lockfileFile[depType] != null) {
-        lockfileFile.importers['.'][depType] = lockfileFile[depType]
-        delete lockfileFile[depType]
+        lockfileFile.importers!.get('.')![depType] = lockfileFile[depType]
+        lockfileFile[depType] = undefined
       }
     }
   }

@@ -69,7 +69,6 @@ import equals from 'ramda/src/equals'
 import isEmpty from 'ramda/src/isEmpty'
 import pickBy from 'ramda/src/pickBy'
 import pipeWith from 'ramda/src/pipeWith'
-import props from 'ramda/src/props'
 import unnest from 'ramda/src/unnest'
 import { parseWantedDependencies } from '../parseWantedDependencies'
 import { removeDeps } from '../uninstall/removeDeps'
@@ -930,7 +929,7 @@ const _installInContext: InstallFunction = async (projects, ctx, opts) => {
     )
     for (const { id, manifest } of projects) {
       dependenciesByProjectId[id] = pickBy((depPath) => {
-        const dep = dependenciesGraph[depPath]
+        const dep = dependenciesGraph.get(depPath)
         if (!dep) return false
         const isDev = Boolean(manifest.devDependencies?.[dep.name])
         const isOptional = Boolean(manifest.optionalDependencies?.[dep.name])
@@ -1020,7 +1019,7 @@ const _installInContext: InstallFunction = async (projects, ctx, opts) => {
           .concat(
             await pFilter(result.newDepPaths,
               (depPath) => {
-                const requiresBuild = dependenciesGraph[depPath].requiresBuild
+                const requiresBuild = dependenciesGraph.get(depPath)!.requiresBuild
                 if (typeof requiresBuild === 'function') return requiresBuild()
                 return requiresBuild
               }
@@ -1030,7 +1029,7 @@ const _installInContext: InstallFunction = async (projects, ctx, opts) => {
       if (!opts.ignoreScripts || Object.keys(opts.patchedDependencies ?? {}).length > 0) {
         // postinstall hooks
         const depPaths = Object.keys(dependenciesGraph)
-        const rootNodes = depPaths.filter((depPath) => dependenciesGraph[depPath].depth === 0)
+        const rootNodes = depPaths.filter((depPath) => dependenciesGraph.get(depPath)!.depth === 0)
 
         let extraEnv: Record<string, string> | undefined = opts.scriptsOpts.extraEnv
         if (opts.enablePnp) {
@@ -1067,7 +1066,8 @@ const _installInContext: InstallFunction = async (projects, ctx, opts) => {
       logger.info({ message, prefix })
     }
     if (result.newDepPaths?.length) {
-      const newPkgs = props<string, DependenciesGraphNode>(result.newDepPaths, dependenciesGraph)
+      // const newPkgs = props<string, DependenciesGraphNode>(result.newDepPaths, dependenciesGraph)
+      const newPkgs = result.newDepPaths.map(key => dependenciesGraph.get(key)!)
       await linkAllBins(newPkgs, dependenciesGraph, {
         extraNodePaths: ctx.extraNodePaths,
         optional: opts.include.optionalDependencies,
@@ -1094,31 +1094,58 @@ const _installInContext: InstallFunction = async (projects, ctx, opts) => {
           warn: binWarn.bind(null, project.rootDir),
         })
       } else {
-        const directPkgs = [
-          ...props<string, DependenciesGraphNode>(
-            Object.values(dependenciesByProjectId[project.id]).filter((depPath) => !ctx.skipped.has(depPath)),
-            dependenciesGraph
-          ),
-          ...linkedDependenciesByProjectId[project.id].map(({ pkgId }) => ({
-            dir: path.join(project.rootDir, pkgId.substring(5)),
-            fetchingBundledManifest: undefined,
-          })),
-        ]
+        // const directPkgs = [
+        //   ...props<string, DependenciesGraphNode>(
+        //     Object.values(dependenciesByProjectId[project.id]).filter((depPath) => !ctx.skipped.has(depPath)),
+        //     dependenciesGraph
+        //   ),
+        //   ...linkedDependenciesByProjectId[project.id].map(({ pkgId }) => ({
+        //     dir: path.join(project.rootDir, pkgId.substring(5)),
+        //     fetchingBundledManifest: undefined,
+        //   })),
+        // ]
+        // const directPkgs: DependenciesGraphNode[] = [];
+        const mapFn = async (dir: string, fetchingBundledManifest?: DependenciesGraphNode['fetchingBundledManifest']) => {
+          const manifest = await fetchingBundledManifest?.() ?? await safeReadProjectManifestOnly(dir)
+          let nodeExecPath: string | undefined
+          if (manifest?.name) {
+            nodeExecPath = project.manifest.dependenciesMeta?.[manifest.name]?.node
+          }
+          return {
+            location: dir,
+            manifest,
+            nodeExecPath,
+          }
+        }
+        const dependencyManifests: Array<Promise<{
+          manifest: DependencyManifest | ProjectManifest | null
+          nodeExecPath?: string
+          location: string
+        }>> = []
+
+        for (const depPath of Object.values(dependenciesByProjectId[project.id])) {
+          if (ctx.skipped.has(depPath))
+            continue
+
+          const depNode = dependenciesGraph.get(depPath)!
+          dependencyManifests.push(
+            mapFn(depNode.dir, depNode.fetchingBundledManifest)
+          )
+          // directPkgs.push(dependenciesGraph.get(depPath)!)
+        }
+
+        for (const linked of linkedDependenciesByProjectId[project.id]) {
+          dependencyManifests.push(
+            mapFn(
+              path.join(project.rootDir, linked.pkgId.substring(5))
+            )
+          )
+        }
+
         linkedPackages = await linkBinsOfPackages(
           (
             await Promise.all(
-              directPkgs.map(async (dep) => {
-                const manifest = await dep.fetchingBundledManifest?.() ?? await safeReadProjectManifestOnly(dep.dir)
-                let nodeExecPath: string | undefined
-                if (manifest?.name) {
-                  nodeExecPath = project.manifest.dependenciesMeta?.[manifest.name]?.node
-                }
-                return {
-                  location: dep.dir,
-                  manifest,
-                  nodeExecPath,
-                }
-              })
+              dependencyManifests
             )
           )
             .filter(({ manifest }) => manifest != null) as Array<{ location: string, manifest: DependencyManifest }>,

@@ -3,13 +3,13 @@ import { type DependenciesMeta, type PatchFile } from '@pnpm/types'
 export type { PatchFile }
 
 export interface Lockfile {
-  importers: Record<string, ProjectSnapshot>
+  importers: Map<string, ProjectSnapshot>
   lockfileVersion: number | string
-  time?: Record<string, string>
+  time?: Map<string, string>
   packages?: PackageSnapshots
   neverBuiltDependencies?: string[]
   onlyBuiltDependencies?: string[]
-  overrides?: Record<string, string>
+  overrides?: Map<string, string>
   packageExtensionsChecksum?: string
   patchedDependencies?: Record<string, PatchFile>
 }
@@ -24,15 +24,15 @@ export interface ProjectSnapshot {
 }
 
 export interface LockfileV6 {
-  importers: Record<string, ProjectSnapshotV6>
+  importers: Map<string, ProjectSnapshotV6>
   lockfileVersion: number | string
-  time?: Record<string, string>
+  time?: Map<string, string>
   packages?: PackageSnapshots
   neverBuiltDependencies?: string[]
   onlyBuiltDependencies?: string[]
-  overrides?: Record<string, string>
+  overrides?: Map<string, string>
   packageExtensionsChecksum?: string
-  patchedDependencies?: Record<string, PatchFile>
+  patchedDependencies?: Map<string, PatchFile>
 }
 
 export interface ProjectSnapshotV6 {
@@ -46,9 +46,7 @@ export interface ProjectSnapshotV6 {
 
 export type ResolvedDependenciesOfImporters = Record<string, { version: string, specifier: string }>
 
-export interface PackageSnapshots {
-  [packagePath: string]: PackageSnapshot
-}
+export type PackageSnapshots = Map<string, PackageSnapshot>;
 
 /**
  * tarball hosted remotely
@@ -100,14 +98,10 @@ export interface PackageSnapshot {
   resolution: LockfileResolution
   dependencies?: ResolvedDependencies
   optionalDependencies?: ResolvedDependencies
-  peerDependencies?: {
-    [name: string]: string
-  }
-  peerDependenciesMeta?: {
-    [name: string]: {
-      optional: true
-    }
-  }
+  peerDependencies?: Map<string, string>
+  peerDependenciesMeta?: Map<string, {
+    optional: true
+  }>
   transitivePeerDependencies?: string[]
   bundledDependencies?: string[]
   engines?: Record<string, string> & {
@@ -119,9 +113,7 @@ export interface PackageSnapshot {
   deprecated?: string
 }
 
-export interface Dependencies {
-  [name: string]: string
-}
+export type Dependencies = Map<string, string>
 
 export type PackageBin = string | { [name: string]: string }
 
@@ -130,4 +122,4 @@ export type PackageBin = string | { [name: string]: string }
  *   "foo": "registry.npmjs.org/foo/1.0.1"
  * }
  */
-export type ResolvedDependencies = Record<string, string>
+export type ResolvedDependencies = Map<string, string>

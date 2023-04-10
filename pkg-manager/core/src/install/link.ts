@@ -34,7 +34,6 @@ import difference from 'ramda/src/difference'
 import omit from 'ramda/src/omit'
 import pick from 'ramda/src/pick'
 import pickBy from 'ramda/src/pickBy'
-import props from 'ramda/src/props'
 import { type ImporterToUpdate } from './index'
 
 const brokenModulesLogger = logger('_broken_node_modules')
@@ -77,28 +76,53 @@ export async function linkPackages (
     newHoistedDependencies: HoistedDependencies
     removedDepPaths: Set<string>
   }> {
-  let depNodes = Object.values(depGraph).filter(({ depPath, id }) => {
-    if (((opts.wantedLockfile.packages?.[depPath]) != null) && !opts.wantedLockfile.packages[depPath].optional) {
-      opts.skipped.delete(depPath)
-      return true
+  const shouldAddDepNode = (depNode: DependenciesGraphNode) => {
+    if (!opts.include.dependencies && !(depNode.dev || depNode.optional)) {
+      return false
+      // depNodes = depNodes.filter(({ dev, optional }) => dev || optional)
     }
-    if (opts.wantedToBeSkippedPackageIds.has(id)) {
-      opts.skipped.add(depPath)
+
+    if (!opts.include.devDependencies && !(depNode.prod || depNode.optional)) {
+      return false
+      // depNodes = depNodes.filter(({ optional, prod }) => prod || optional)
+    }
+
+    if (!opts.include.optionalDependencies && depNode.optional) {
       return false
     }
-    opts.skipped.delete(depPath)
+
     return true
-  })
-  if (!opts.include.dependencies) {
-    depNodes = depNodes.filter(({ dev, optional }) => dev || optional)
   }
-  if (!opts.include.devDependencies) {
-    depNodes = depNodes.filter(({ optional, prod }) => prod || optional)
+
+  for (const depNode of depGraph.values()) {
+    // Object.values(depGraph).filter(({ depPath, id }) => {
+    if (((opts.wantedLockfile.packages?.[depNode.depPath]) != null) && !opts.wantedLockfile.packages[depNode.depPath].optional) {
+      opts.skipped.delete(depNode.depPath)
+      if (!shouldAddDepNode(depNode))
+        depGraph.delete(depNode.depPath)
+      // depNodes.push(depNode)
+      continue
+    }
+    if (opts.wantedToBeSkippedPackageIds.has(depNode.id)) {
+      opts.skipped.add(depNode.depPath)
+      depGraph.delete(depNode.depPath)
+      continue
+    }
+    opts.skipped.delete(depNode.depPath)
+    if (!shouldAddDepNode(depNode))
+      depGraph.delete(depNode.depPath)
+    // })
   }
-  if (!opts.include.optionalDependencies) {
-    depNodes = depNodes.filter(({ optional }) => !optional)
-  }
-  depGraph = Object.fromEntries(depNodes.map((depNode) => [depNode.depPath, depNode]))
+  // if (!opts.include.dependencies) {
+  //   depNodes = depNodes.filter(({ dev, optional }) => dev || optional)
+  // }
+  // if (!opts.include.devDependencies) {
+  //   depNodes = depNodes.filter(({ optional, prod }) => prod || optional)
+  // }
+  // if (!opts.include.optionalDependencies) {
+  //   depNodes = depNodes.filter(({ optional }) => !optional)
+  // }
+  // depGraph = Object.fromEntries(depNodes.map((depNode) => [depNode.depPath, depNode]))
   const removedDepPaths = await prune(projects, {
     currentLockfile: opts.currentLockfile,
     hoistedDependencies: opts.hoistedDependencies,
@@ -166,7 +190,7 @@ export async function linkPackages (
     const packages = opts.currentLockfile.packages ?? {}
     if (opts.wantedLockfile.packages != null) {
       for (const depPath in opts.wantedLockfile.packages) { // eslint-disable-line:forin
-        if (depGraph[depPath]) {
+        if (depGraph.get(depPath)) {
           packages[depPath] = opts.wantedLockfile.packages[depPath]
         }
       }
@@ -234,7 +258,7 @@ export async function linkPackages (
           dependencies: await Promise.all([
             ...Object.entries(deps)
               .filter(([rootAlias]) => importerFromLockfile.specifiers[rootAlias])
-              .map(([rootAlias, depPath]) => ({ rootAlias, depGraphNode: depGraph[depPath] }))
+              .map(([rootAlias, depPath]) => ({ rootAlias, depGraphNode: depGraph.get(depPath)! }))
               .filter(({ depGraphNode }) => depGraphNode)
               .map(async ({ rootAlias, depGraphNode }) => {
                 const isDev = Boolean(manifest.devDependencies?.[depGraphNode.name])
@@ -310,7 +334,7 @@ async function linkNewPackages (
       wantedRelDepPaths
         // when installing a new package, not all the nodes are analyzed
         // just skip the ones that are in the lockfile but were not analyzed
-        .filter((depPath) => depGraph[depPath])
+        .filter((depPath) => depGraph.get(depPath))
     )
   } else {
     newDepPathsSet = await selectNewFromWantedDeps(wantedRelDepPaths, currentLockfile, depGraph)
@@ -331,8 +355,8 @@ async function linkNewPackages (
         !equals(currentLockfile.packages[depPath].optionalDependencies, wantedLockfile.packages[depPath].optionalDependencies))) {
         // TODO: come up with a test that triggers the usecase of depGraph[depPath] undefined
         // see related issue: https://github.com/pnpm/pnpm/issues/870
-        if (depGraph[depPath] && !newDepPathsSet.has(depPath)) {
-          existingWithUpdatedDeps.push(depGraph[depPath])
+        if (depGraph.has(depPath) && !newDepPathsSet.has(depPath)) {
+          existingWithUpdatedDeps.push(depGraph.get(depPath)!)
         }
       }
     }
@@ -342,7 +366,7 @@ async function linkNewPackages (
 
   const newDepPaths = Array.from(newDepPathsSet)
 
-  const newPkgs = props<string, DependenciesGraphNode>(newDepPaths, depGraph)
+  const newPkgs = newDepPaths.map(key => depGraph.get(key)!)
 
   await Promise.all(newPkgs.map(async (depNode) => fs.mkdir(depNode.modules, { recursive: true })))
   await Promise.all([
@@ -375,7 +399,7 @@ async function selectNewFromWantedDeps (
   await Promise.all(
     wantedRelDepPaths.map(
       async (depPath: string) => {
-        const depNode = depGraph[depPath]
+        const depNode = depGraph.get(depPath)
         if (!depNode) return
         const prevDep = prevDeps[depPath]
         if (
@@ -440,9 +464,9 @@ async function linkAllPkgs (
       }
       depNode.isBuilt = isBuilt
 
-      const selfDep = depNode.children[depNode.name]
+      const selfDep = depNode.children.get(depNode.name)
       if (selfDep) {
-        const pkg = opts.depGraph[selfDep]
+        const pkg = opts.depGraph.get(selfDep)
         if (!pkg || !pkg.installable && pkg.optional) return
         const targetModulesDir = path.join(depNode.modules, depNode.name, 'node_modules')
         await limitLinking(async () => symlinkDependency(pkg.dir, targetModulesDir, depNode.name))
@@ -462,9 +486,9 @@ async function linkAllModules (
   await Promise.all(
     depNodes
       .map(async ({ children, optionalDependencies, name, modules }) => {
-        const childrenToLink: Record<string, string> = opts.optional
+        const childrenToLink: Map<string, string> = opts.optional
           ? children
-          : pickBy((_, childAlias) => !optionalDependencies.has(childAlias), children)
+          : pickBy((_, childAlias) => !optionalDependencies.has(childAlias as string), children)
 
         await Promise.all(
           Object.entries(childrenToLink)
@@ -473,7 +497,7 @@ async function linkAllModules (
                 await limitLinking(() => symlinkDependency(path.resolve(opts.lockfileDir, childDepPath.slice(5)), modules, childAlias))
                 return
               }
-              const pkg = depGraph[childDepPath]
+              const pkg = depGraph.get(childDepPath)
               if (!pkg || !pkg.installable && pkg.optional || childAlias === name) return
               await limitLinking(() => symlinkDependency(pkg.dir, modules, childAlias))
             })

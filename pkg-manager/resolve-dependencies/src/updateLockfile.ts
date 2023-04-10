@@ -33,10 +33,16 @@ export function updateLockfile (
   } {
   lockfile.packages = lockfile.packages ?? {}
   const pendingRequiresBuilds = [] as string[]
-  for (const [depPath, depNode] of Object.entries(dependenciesGraph)) {
+  for (const [depPath, depNode] of dependenciesGraph.entries()) {
+    const updatedChildrenDeps: Array<{ alias: string, depPath: string }> = []
+
+    for (const [alias, depPath] of depNode.children.entries()) {
+      updatedChildrenDeps.push({ alias, depPath })
+    }
+
     const [updatedOptionalDeps, updatedDeps] = partition(
       (child) => depNode.optionalDependencies.has(child.alias),
-      Object.entries(depNode.children).map(([alias, depPath]) => ({ alias, depPath }))
+      updatedChildrenDeps
     )
     lockfile.packages[depPath] = toLockfileDependency(pendingRequiresBuilds, depNode, {
       depGraph: dependenciesGraph,
@@ -80,13 +86,13 @@ function toLockfileDependency (
     opts.lockfileIncludeTarballUrl
   )
   const newResolvedDeps = updateResolvedDeps(
-    opts.prevSnapshot?.dependencies ?? {},
+    opts.prevSnapshot?.dependencies ?? new Map(),
     opts.updatedDeps,
     opts.registries,
     opts.depGraph
   )
   const newResolvedOptionalDeps = updateResolvedDeps(
-    opts.prevSnapshot?.optionalDependencies ?? {},
+    opts.prevSnapshot?.optionalDependencies ?? new Map(),
     opts.updatedOptionalDeps,
     opts.registries,
     opts.depGraph
@@ -127,13 +133,13 @@ function toLockfileDependency (
     result['transitivePeerDependencies'] = Array.from(pkg.transitivePeerDependencies).sort()
   }
   if (pkg.peerDependenciesMeta != null) {
-    const normalizedPeerDependenciesMeta: Record<string, { optional: true }> = {}
+    const normalizedPeerDependenciesMeta: Map<string, { optional: true }> = new Map()
     for (const [peer, { optional }] of Object.entries(pkg.peerDependenciesMeta)) {
       if (optional) {
-        normalizedPeerDependenciesMeta[peer] = { optional: true }
+        normalizedPeerDependenciesMeta.set(peer, { optional: true })
       }
     }
-    if (Object.keys(normalizedPeerDependenciesMeta).length > 0) {
+    if (normalizedPeerDependenciesMeta.size > 0) {
       result['peerDependenciesMeta'] = normalizedPeerDependenciesMeta
     }
   }
@@ -200,28 +206,47 @@ function updateResolvedDeps (
   registries: Registries,
   depGraph: DependenciesGraph
 ) {
-  const newResolvedDeps = Object.fromEntries(
-    updatedDeps
-      .map(({ alias, depPath }): KeyValuePair<string, string> => {
-        if (depPath.startsWith('link:')) {
-          return [alias, depPath]
-        }
-        const depNode = depGraph[depPath]
-        return [
-          alias,
-          depPathToRef(depNode.depPath, {
-            alias,
-            realName: depNode.name,
-            registries,
-            resolution: depNode.resolution,
-          }),
-        ]
-      })
-  )
-  return mergeRight(
-    prevResolvedDeps,
-    newResolvedDeps
-  )
+  const newResolvedDeps = new Map(prevResolvedDeps.entries());
+
+  for (const updatedDep of updatedDeps) {
+    if (updatedDep.depPath.startsWith('link:')) {
+      newResolvedDeps.set(updatedDep.alias, updatedDep.depPath);
+      continue;
+    }
+
+    const depNode = depGraph.get(updatedDep.depPath)!
+    newResolvedDeps.set(updatedDep.alias, depPathToRef(depNode.depPath, {
+      alias: updatedDep.alias,
+      realName: depNode.name,
+      registries,
+      resolution: depNode.resolution,
+    }));
+  }
+
+  return newResolvedDeps;
+
+  // const newResolvedDeps = Object.fromEntries(
+  //   updatedDeps
+  //     .map(({ alias, depPath }): KeyValuePair<string, string> => {
+  //       if (depPath.startsWith('link:')) {
+  //         return [alias, depPath]
+  //       }
+  //       const depNode = depGraph.get(depPath)!
+  //       return [
+  //         alias,
+  //         depPathToRef(depNode.depPath, {
+  //           alias,
+  //           realName: depNode.name,
+  //           registries,
+  //           resolution: depNode.resolution,
+  //         }),
+  //       ]
+  //     })
+  // )
+  // return mergeRight(
+  //   prevResolvedDeps,
+  //   newResolvedDeps
+  // )
 }
 
 function toLockfileResolution (

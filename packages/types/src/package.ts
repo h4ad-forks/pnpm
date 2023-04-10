@@ -1,4 +1,4 @@
-export type Dependencies = Record<string, string>
+export type Dependencies = Map<string, string>
 
 export type PackageBin = string | { [commandName: string]: string }
 
@@ -38,11 +38,9 @@ export type PackageScripts = {
   postshrinkwrap?: string
 }
 
-export interface PeerDependenciesMeta {
-  [dependencyName: string]: {
-    optional?: boolean
-  }
-}
+export type PeerDependenciesMeta = Map<string, {
+  optional?: boolean
+}>
 
 export interface DependenciesMeta {
   [dependencyName: string]: {

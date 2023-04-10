@@ -96,7 +96,7 @@ test('resolve peer dependencies of cyclic dependencies', () => {
     virtualStoreDir: '',
     lockfileDir: '',
   })
-  expect(Object.keys(dependenciesGraph)).toStrictEqual([
+  expect(dependenciesGraph.keys()).toStrictEqual([
     'foo/1.0.0(qar@1.0.0)(zoo@1.0.0)',
     'bar/1.0.0(foo@1.0.0)(zoo@1.0.0)',
     'zoo/1.0.0(qar@1.0.0)',

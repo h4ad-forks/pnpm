@@ -4,9 +4,9 @@ export function getSpecFromPackageManifest (
   manifest: Pick<ProjectManifest, DependenciesOrPeersField>,
   depName: string
 ) {
-  return manifest.optionalDependencies?.[depName] ??
-    manifest.dependencies?.[depName] ??
-    manifest.devDependencies?.[depName] ??
-    manifest.peerDependencies?.[depName] ??
+  return manifest.optionalDependencies?.has(depName) ??
+    manifest.dependencies?.has(depName) ??
+    manifest.devDependencies?.has(depName) ??
+    manifest.peerDependencies?.has(depName) ??
     ''
 }

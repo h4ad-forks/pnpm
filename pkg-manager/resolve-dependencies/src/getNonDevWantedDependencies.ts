@@ -1,5 +1,4 @@
 import { type Dependencies, type DependencyManifest, type DependenciesMeta } from '@pnpm/types'
-import pickBy from 'ramda/src/pickBy'
 
 export interface WantedDependency {
   alias: string
@@ -12,35 +11,60 @@ export interface WantedDependency {
 export function getNonDevWantedDependencies (pkg: Pick<DependencyManifest, 'bundleDependencies' | 'optionalDependencies' | 'dependencies' | 'dependenciesMeta'>) {
   const bd = pkg.bundleDependencies ?? pkg.bundleDependencies
   const bundledDeps = new Set(Array.isArray(bd) ? bd : [])
-  const filterDeps = getNotBundledDeps.bind(null, bundledDeps)
-  return getWantedDependenciesFromGivenSet(
-    filterDeps({ ...pkg.optionalDependencies, ...pkg.dependencies }),
-    {
-      dependenciesMeta: pkg.dependenciesMeta ?? {},
-      devDependencies: {},
-      optionalDependencies: pkg.optionalDependencies ?? {},
-    }
-  )
+
+  const options = {
+    dependenciesMeta: pkg.dependenciesMeta ?? {},
+    devDependencies: new Map(),
+    optionalDependencies: pkg.optionalDependencies ?? new Map(),
+    bundledDeps,
+  }
+
+  const wantedDeps: WantedDependency[] = [];
+
+  if (pkg.dependencies)
+    addWantedDependenciesFromGivenSet(wantedDeps, pkg.dependencies, options)
+
+  if (pkg.optionalDependencies)
+    addWantedDependenciesFromGivenSet(wantedDeps, pkg.optionalDependencies, options)
+
+  return wantedDeps
+  // const filterDeps = getNotBundledDeps.bind(null, bundledDeps)
+  // return getWantedDependenciesFromGivenSet(
+  //   filterDeps({ ...pkg.optionalDependencies, ...pkg.dependencies }),
+  //   {
+  //     dependenciesMeta: pkg.dependenciesMeta ?? {},
+  //     devDependencies: new Map(),
+  //     optionalDependencies: pkg.optionalDependencies ?? new Map(),
+  //   }
+  // )
 }
 
-function getWantedDependenciesFromGivenSet (
+function addWantedDependenciesFromGivenSet (
+  wantedDeps: WantedDependency[],
   deps: Dependencies,
   opts: {
     devDependencies: Dependencies
     optionalDependencies: Dependencies
-    dependenciesMeta: DependenciesMeta
+    dependenciesMeta: DependenciesMeta,
+    bundledDeps: Set<string>,
   }
-): WantedDependency[] {
-  if (!deps) return []
-  return Object.entries(deps).map(([alias, pref]) => ({
-    alias,
-    dev: !!opts.devDependencies[alias],
-    injected: opts.dependenciesMeta[alias]?.injected,
-    optional: !!opts.optionalDependencies[alias],
-    pref,
-  }))
+): void {
+  if (!deps) return
+
+  for (const [alias, pref] of deps.entries()) {
+    if (opts.bundledDeps.has(alias))
+      continue;
+
+    wantedDeps.push({
+      alias,
+      dev: opts.devDependencies.has(alias),
+      injected: opts.dependenciesMeta[alias]?.injected,
+      optional: opts.optionalDependencies.has(alias),
+      pref,
+    });
+  }
 }
 
-function getNotBundledDeps (bundledDeps: Set<string>, deps: Dependencies): Record<string, string> {
-  return pickBy((_, depName) => !bundledDeps.has(depName), deps)
-}
+// function getNotBundledDeps (bundledDeps: Set<string>, deps: Dependencies): Map<string, string> {
+//   return pickBy((_, depName) => !bundledDeps.has(depName as string), deps)
+// }

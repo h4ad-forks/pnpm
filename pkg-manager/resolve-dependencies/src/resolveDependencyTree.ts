@@ -10,6 +10,8 @@ import {
 import partition from 'ramda/src/partition'
 import zipObj from 'ramda/src/zipObj'
 import { type WantedDependency } from './getNonDevWantedDependencies'
+import { ResolvedDependencies, PackageSnapshot } from '../../../lockfile/lockfile-types/lib/index';
+import { ResolutionContext } from '../lib/resolveDependencies';
 import {
   createNodeId,
   nodeIdContainsSequence,
@@ -94,14 +96,14 @@ export async function resolveDependencyTree<T> (
   opts: ResolveDependenciesOptions
 ) {
   const wantedToBeSkippedPackageIds = new Set<string>()
-  const ctx = {
+  const ctx: ResolutionContext = {
     autoInstallPeers: opts.autoInstallPeers === true,
     allowBuild: opts.allowBuild,
     allowedDeprecatedVersions: opts.allowedDeprecatedVersions,
     childrenByParentDepPath: {} as ChildrenByParentDepPath,
     currentLockfile: opts.currentLockfile,
     defaultTag: opts.tag,
-    dependenciesTree: {} as DependenciesTree<ResolvedPackage>,
+    dependenciesTree: new Map(),
     dryRun: opts.dryRun,
     engineStrict: opts.engineStrict,
     force: opts.force,
@@ -117,7 +119,7 @@ export async function resolveDependencyTree<T> (
     preferWorkspacePackages: opts.preferWorkspacePackages,
     readPackageHook: opts.hooks.readPackage,
     registries: opts.registries,
-    resolvedPackagesByDepPath: {} as ResolvedPackagesByDepPath,
+    resolvedPackagesByDepPath: new Map(),
     resolutionMode: opts.resolutionMode,
     skipped: wantedToBeSkippedPackageIds,
     storeController: opts.storeController,
@@ -126,7 +128,7 @@ export async function resolveDependencyTree<T> (
     appliedPatches: new Set<string>(),
     updatedSet: new Set<string>(),
     workspacePackages: opts.workspacePackages,
-    missingPeersOfChildrenByPkgId: {},
+    missingPeersOfChildrenByPkgId: new Map(),
   }
 
   const resolveArgs: ImporterToResolve[] = importers.map((importer) => {
@@ -135,6 +137,17 @@ export async function resolveDependencyTree<T> (
     // We only need to proceed resolving every dependency
     // if the newly added dependency has peer dependencies.
     const proceed = importer.id === '.' || importer.hasRemovedDependencies === true || importer.wantedDependencies.some((wantedDep: any) => wantedDep.isNew) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    const resolvedDependencies = new Map(projectSnapshot.dependencies?.entries() ?? [])
+
+    for (const [depName, depSnapshot] of projectSnapshot.devDependencies?.entries() ?? []) {
+      resolvedDependencies.set(depName, depSnapshot)
+    }
+
+    for (const [depName, depSnapshot] of projectSnapshot.optionalDependencies?.entries() ?? []) {
+      resolvedDependencies.set(depName, depSnapshot)
+    }
+
     const resolveOpts = {
       currentDepth: 0,
       parentPkg: {
@@ -145,20 +158,16 @@ export async function resolveDependencyTree<T> (
         rootDir: importer.rootDir,
       },
       proceed,
-      resolvedDependencies: {
-        ...projectSnapshot.dependencies,
-        ...projectSnapshot.devDependencies,
-        ...projectSnapshot.optionalDependencies,
-      },
+      resolvedDependencies,
       updateDepth: -1,
       updateMatching: importer.updateMatching,
       prefix: importer.rootDir,
     }
     return {
       updatePackageManifest: importer.updatePackageManifest,
-      parentPkgAliases: Object.fromEntries(
+      parentPkgAliases: new Map(
         importer.wantedDependencies.filter(({ alias }) => alias).map(({ alias }) => [alias, true])
-      ) as ParentPkgAliases,
+      ),
       preferredVersions: importer.preferredVersions ?? {},
       wantedDependencies: importer.wantedDependencies,
       options: resolveOpts,
@@ -168,13 +177,13 @@ export async function resolveDependencyTree<T> (
   const directDepsByImporterId = zipObj(importers.map(({ id }) => id), pkgAddressesByImporters)
 
   ctx.pendingNodes.forEach((pendingNode) => {
-    ctx.dependenciesTree[pendingNode.nodeId] = {
+    ctx.dependenciesTree.set(pendingNode.nodeId, {
       children: () => buildTree(ctx, pendingNode.nodeId, pendingNode.resolvedPackage.id,
         ctx.childrenByParentDepPath[pendingNode.resolvedPackage.depPath], pendingNode.depth + 1, pendingNode.installable),
       depth: pendingNode.depth,
       installable: pendingNode.installable,
       resolvedPackage: pendingNode.resolvedPackage,
-    }
+    });
   })
 
   const resolvedImporters = {} as {
@@ -197,7 +206,7 @@ export async function resolveDependencyTree<T> (
           if (dep.isLinkedDependency === true) {
             return dep
           }
-          const resolvedPackage = ctx.dependenciesTree[dep.nodeId].resolvedPackage as ResolvedPackage
+          const resolvedPackage = ctx.dependenciesTree.get(dep.nodeId).resolvedPackage as ResolvedPackage
           return {
             alias: dep.alias,
             dev: resolvedPackage.dev,
@@ -242,19 +251,19 @@ function buildTree (
   depth: number,
   installable: boolean
 ) {
-  const childrenNodeIds: Record<string, string> = {}
+  const childrenNodeIds: Map<string, string> = new Map()
   for (const child of children) {
     if (child.depPath.startsWith('link:')) {
-      childrenNodeIds[child.alias] = child.depPath
+      childrenNodeIds.set(child.alias, child.depPath)
       continue
     }
     if (nodeIdContainsSequence(parentNodeId, parentId, child.depPath) || parentId === child.depPath) {
       continue
     }
     const childNodeId = createNodeId(parentNodeId, child.depPath)
-    childrenNodeIds[child.alias] = childNodeId
+    childrenNodeIds.set(child.alias, childNodeId)
     installable = installable && !ctx.skipped.has(child.depPath)
-    ctx.dependenciesTree[childNodeId] = {
+    ctx.dependenciesTree.set(childNodeId, {
       children: () => buildTree(ctx,
         childNodeId,
         child.depPath,
@@ -264,8 +273,8 @@ function buildTree (
       ),
       depth,
       installable,
-      resolvedPackage: ctx.resolvedPackagesByDepPath[child.depPath],
-    }
+      resolvedPackage: ctx.resolvedPackagesByDepPath.get(child.depPath)!,
+    })
   }
   return childrenNodeIds
 }

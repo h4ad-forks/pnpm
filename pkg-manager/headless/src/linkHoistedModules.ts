@@ -97,7 +97,7 @@ async function linkAllPkgsInOrder (
   const _calcDepState = calcDepState.bind(null, graph, opts.depsStateCache)
   await Promise.all(
     Object.entries(hierarchy).map(async ([dir, deps]) => {
-      const depNode = graph[dir]
+      const depNode = graph.get(dir)!
       if (depNode.fetchingFiles) {
         let filesResponse!: PackageFilesResponse
         try {
@@ -120,7 +120,7 @@ async function linkAllPkgsInOrder (
         await limitLinking(async () => {
           const { importMethod, isBuilt } = await storeController.importPackage(depNode.dir, {
             filesResponse,
-            force: opts.force || depNode.depPath !== prevGraph[dir]?.depPath,
+            force: opts.force || depNode.depPath !== prevGraph.get(dir)?.depPath,
             keepModulesDir: true,
             requiresBuild: depNode.requiresBuild || depNode.patchFile != null,
             sideEffectsCacheKey,
